@@ -1,7 +1,7 @@
 import asyncio
 
 
-def str_evdict_to_instanced(strevdict, subscriber_cls):
+def instanced_evdict(strevdict, subscriber_cls):
     # first gather subs to create
     subs = set()
     for subs_list in strevdict.values():
@@ -18,5 +18,5 @@ def str_evdict_to_instanced(strevdict, subscriber_cls):
     return evdict
 
 
-def gather_eloops(*eloopables):
-    return asyncio.gather(*[eloop() for eloop in eloopables])
+def eloop_gather(*eloopables):
+    return asyncio.gather(*[e.loop() for e in eloopables])

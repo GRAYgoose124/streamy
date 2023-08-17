@@ -8,7 +8,7 @@ class ELoop(ABC):
         self.event_stream = stream
 
     @abstractmethod
-    def loop(self):
+    async def loop(self):
         pass
 
     def __call__(self):

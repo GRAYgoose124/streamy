@@ -9,7 +9,7 @@ from .stream import EventStream
 from .event import ELoop, Event
 from .publisher import Publisher
 from .subscriber import Subscriber
-from .utils import gather_eloops, str_evdict_to_instanced
+from .utils import eloop_gather, instanced_evdict
 
 
 log = logging.getLogger(__name__)
@@ -36,25 +36,16 @@ class MyPublisher(Publisher):
             await asyncio.sleep(random.uniform(0.1, 0.5))
 
 
-async def event_stream_demo():
-    # subs = {
-    #     MySubscriber("A"): [MyEvent],
-    #     MySubscriber("B"): [MyEvent, MyOtherEvent],
-    #     MySubscriber("C"): [MyOtherEvent],
-    # }
-    # stream = EventStream.from_subdict(subs)
-
-    # subs = {c: MySubscriber(c) for c in "ABC"}
-    # evdict = {
-    #     MyEvent: [subs["A"], subs["B"]],
-    #     MyOtherEvent: [subs["B"], subs["C"]],
-    # }
-    # stream = EventStream.from_subdict(evdict)
+def main():
+    logging.basicConfig(
+        level=logging.DEBUG,  # also want module name
+        format="%(module)s:%(lineno)d\t%(levelname)s] %(message)s",
+    )
 
     stream = EventStream()
     stream.add_middleware(LoggerMiddleware(name="Logger"))
     stream.subscribe(
-        str_evdict_to_instanced(
+        instanced_evdict(
             {
                 MyEvent: ["A", "B"],
                 MyOtherEvent: ["B", "C"],
@@ -62,15 +53,13 @@ async def event_stream_demo():
             MySubscriber,
         )
     )
-
-    await gather_eloops(*[MyPublisher(stream) for _ in range(3)], stream)
-
-
-def main():
-    logging.basicConfig(level=logging.DEBUG)
+    stream.update_filter(lambda e: e.data % 2 == 0, event_type=MyEvent)
+    stream.update_filter(lambda e: e.data % 2 == 1, subscriber_name="B")
 
     try:
-        asyncio.run(event_stream_demo())
+        asyncio.get_event_loop().run_until_complete(
+            eloop_gather(*[MyPublisher(stream) for _ in range(3)], stream)
+        )
     except KeyboardInterrupt:
         pass
 

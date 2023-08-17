@@ -1,15 +1,23 @@
 import asyncio
+from dataclasses import dataclass
 from functools import singledispatch
 import logging
 from collections import defaultdict
 from collections.abc import Mapping
-from typing import Dict
+import traceback
+from typing import Callable, Dict, NamedTuple
 
 from .event import ELoop, Event
 from .subscriber import Subscriber
 from .middleware import Middleware
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class Subscription:
+    subscriber: Subscriber
+    filter_fn: Callable[[Event], bool] = None
 
 
 class EventStream(ELoop):
@@ -37,9 +45,10 @@ class EventStream(ELoop):
     async def publish(self, event, middleware=True):
         if middleware:
             event = await self._apply_middlewares(event)
+            if event is None:
+                return
 
-        if event:
-            await self._event_queue.put(event)
+        await self._event_queue.put(event)
 
     async def loop(self):
         """Dispatch loop"""
@@ -48,8 +57,6 @@ class EventStream(ELoop):
                 await self._dispatch_all()
             except KeyboardInterrupt:
                 self._done = True
-            except Exception as e:
-                log.error(f"Error during dispatch: {e}")
 
             await asyncio.sleep(1)
 
@@ -64,10 +71,15 @@ class EventStream(ELoop):
             events.append(event)
 
         for event in events:
-            subscribers = self._subscriptions[type(event)]
-            tasks = [
-                self._safe_dispatch(subscriber, [event]) for subscriber in subscribers
-            ]
+            subscriptions = self._subscriptions[type(event)]
+            tasks = []
+
+            for subscription in subscriptions:
+                if not subscription.filter_fn or subscription.filter_fn(event):
+                    tasks.append(self._safe_dispatch(subscription.subscriber, [event]))
+                else:
+                    log.debug(f"Filter rejected event {event} for {subscription}")
+
             await asyncio.gather(*tasks)
 
     async def _safe_dispatch(self, subscriber, events):
@@ -75,7 +87,9 @@ class EventStream(ELoop):
             self._active_subscribers += 1
             await subscriber(events)
         except Exception as e:
-            log.error(f"Error in subscriber {subscriber.name}: {e}")
+            log.error(
+                f"Error in subscriber {subscriber.name}:\n{traceback.format_exc()}\n"
+            )
         finally:
             self._active_subscribers -= 1
 
@@ -91,8 +105,38 @@ class EventStream(ELoop):
                 return None
         return event
 
+    def remove_filter(self, subscriber_name, event_type):
+        for et, subscription_list in self._subscriptions.items():
+            for subscription in subscription_list:
+                if subscription.subscriber.name == subscriber_name:
+                    subscription.filter_fn = None
+                if et == event_type:
+                    subscription.filter_fn = None
+
+    def update_filter(self, filter_fn, subscriber_name=None, event_type=None):
+        if subscriber_name is None and event_type is None:
+            raise ValueError("Either subscriber or event_type must be specified")
+        if subscriber_name is not None and event_type is not None:
+            raise ValueError("Only one of subscriber or event_type can be specified")
+
+        def new_filter(s):
+            old_filter = s.filter_fn
+            if old_filter is None:
+                return filter_fn
+            else:
+                return lambda e: filter_fn(e) and old_filter(e)
+
+        if event_type is not None:
+            for subscription in self._subscriptions[event_type]:
+                subscription.filter_fn = new_filter(subscription)
+        else:
+            for subscription_list in self._subscriptions.values():
+                for subscription in subscription_list:
+                    if subscription.subscriber.name == subscriber_name:
+                        subscription.filter_fn = new_filter(subscription)
+
     # subscription
-    def subscribe(self, event_type, subscriber=None):
+    def subscribe(self, event_type, subscriber=None, filter_fn=None):
         if subscriber is None:
             if isinstance(event_type, Mapping):
                 return self.subscribe_from(event_type)
@@ -101,7 +145,8 @@ class EventStream(ELoop):
                     "subscriber must be specified if event_type is not a mapping"
                 )
 
-        self._subscriptions[event_type].append(subscriber)
+        subscription = Subscription(subscriber, filter_fn)
+        self._subscriptions[event_type].append(subscription)
 
     def subscribe_from(self, d: Dict[Event | Subscriber, list[Event | Subscriber]]):
         key_type = d.keys().__iter__().__next__()
@@ -115,12 +160,18 @@ class EventStream(ELoop):
                     self.subscribe(ev, sub)
 
     def unsubscribe(self, event_type, subscriber):
-        self._subscriptions[event_type].remove(subscriber)
+        to_remove = [
+            i
+            for i, subscription in enumerate(self._subscriptions[event_type])
+            if subscription.subscriber == subscriber
+        ]
+
+        for i in to_remove:
+            self._subscriptions[event_type].pop(i)
 
     def unsubscribe_all(self, subscriber):
-        for _, subscribers in self._subscriptions.items():
-            if subscriber in subscribers:
-                subscribers.remove(subscriber)
+        for event_type in self._subscriptions.keys():
+            self.unsubscribe(event_type, subscriber)
 
     @classmethod
     def from_dict(cls, evs: dict[Subscriber | Event, list[Event | Subscriber]]):

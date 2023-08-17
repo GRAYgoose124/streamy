@@ -37,5 +37,5 @@ class LoggerMiddleware(Middleware):
 
     async def __call__(self, event):
         """Log the event."""
-        self.logger.info(f"\t Event: {event}")
+        self.logger.info(f"Event: {event}")
         return event
