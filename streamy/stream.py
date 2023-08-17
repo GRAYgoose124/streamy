@@ -172,7 +172,7 @@ class EventStream(ELoop):
                             subscription.callback_fns.extend(callback_fns)
 
     # subscription
-    def subscribe(self, event_type, subscriber=None, filter_fn=None):
+    def subscribe(self, event_type: Event | dict, subscriber=None, filter_fn=None):
         if subscriber is None:
             if isinstance(event_type, Mapping):
                 return self.subscribe_from(event_type)
