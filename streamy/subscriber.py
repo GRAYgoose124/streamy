@@ -25,18 +25,16 @@ class Subscriber(ABC):
         self._idle = True
 
     def subscribe(self, event_stream, event_type):
-        self.generic_list_or_event(event_stream, event_type, "subscribe")
+        self._generic_nested_sub_operation(event_stream, event_type, "subscribe")
 
     def unsubscribe(self, event_stream, event_type):
-        self.generic_list_or_event(event_stream, event_type, "unsubscribe")
+        self._generic_nested_sub_operation(event_stream, event_type, "unsubscribe")
 
-    def generic_list_or_event(
+    def _generic_nested_sub_operation(
         self, event_stream, event_type, operation: Literal["subscribe", "unsubscribe"]
     ):
-        operation = getattr(event_stream, operation)
-
         if isinstance(event_type, list):
             for event in event_type:
-                self.generic_list_or_event(event_stream, event, operation)
+                self._generic_nested_sub_operation(event_stream, event, operation)
         elif issubclass(event_type, Event):
-            operation(event_type, self)
+            getattr(event_stream, operation)(event_type, self)

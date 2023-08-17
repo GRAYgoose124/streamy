@@ -3,8 +3,10 @@ from abc import ABC, abstractmethod
 import logging
 import random
 
+from streamy.middleware import LoggerMiddleware
+
 from .stream import EventStream
-from .event import Event
+from .event import ELoop, Event
 from .publisher import Publisher
 from .subscriber import Subscriber
 from .utils import gather_eloops, str_evdict_to_instanced
@@ -29,9 +31,9 @@ class MySubscriber(Subscriber):
 class MyPublisher(Publisher):
     async def loop(self):
         while True:
-            await asyncio.sleep(random.randint(1, 5))
-            event = MyEvent if random.randint(1, 2) == 1 else MyOtherEvent
-            await self.event_stream.publish(event(random.randint(1, 100)))
+            event_cls = MyEvent if random.randint(0, 1) == 1 else MyOtherEvent
+            await self.event_stream.publish(event_cls(random.randint(1, 100)))
+            await asyncio.sleep(random.uniform(0.1, 0.5))
 
 
 async def event_stream_demo():
@@ -49,15 +51,17 @@ async def event_stream_demo():
     # }
     # stream = EventStream.from_subdict(evdict)
 
-    evdict = str_evdict_to_instanced(
-        {
-            MyEvent: ["A", "B"],
-            MyOtherEvent: ["B", "C"],
-        },
-        MySubscriber,
-    )
     stream = EventStream()
-    stream.subscribe(evdict)
+    stream.add_middleware(LoggerMiddleware(name="Logger"))
+    stream.subscribe(
+        str_evdict_to_instanced(
+            {
+                MyEvent: ["A", "B"],
+                MyOtherEvent: ["B", "C"],
+            },
+            MySubscriber,
+        )
+    )
 
     await gather_eloops(*[MyPublisher(stream) for _ in range(3)], stream)
 

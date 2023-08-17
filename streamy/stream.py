@@ -7,6 +7,7 @@ from typing import Dict
 
 from .event import ELoop, Event
 from .subscriber import Subscriber
+from .middleware import Middleware
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +22,8 @@ class EventStream(ELoop):
         self._done = False
         self._active_subscribers = 0
 
+        self._middlewares = []
+
     @property
     def idle(self):
         """Waiting for events"""
@@ -31,27 +34,12 @@ class EventStream(ELoop):
         """Finished"""
         return self._done
 
-    def subscribe(self, event_type, subscriber=None):
-        if subscriber is None:
-            if isinstance(event_type, Mapping):
-                return self.subscribe_from(event_type)
-            else:
-                raise TypeError(
-                    "subscriber must be specified if event_type is not a mapping"
-                )
+    async def publish(self, event, middleware=True):
+        if middleware:
+            event = await self._apply_middlewares(event)
 
-        self._subscriptions[event_type].append(subscriber)
-
-    def unsubscribe(self, event_type, subscriber):
-        self._subscriptions[event_type].remove(subscriber)
-
-    def unsubscribe_all(self, subscriber):
-        for _, subscribers in self._subscriptions.items():
-            if subscriber in subscribers:
-                subscribers.remove(subscriber)
-
-    async def publish(self, event):
-        await self._event_queue.put(event)
+        if event:
+            await self._event_queue.put(event)
 
     async def loop(self):
         """Dispatch loop"""
@@ -65,9 +53,17 @@ class EventStream(ELoop):
 
             await asyncio.sleep(1)
 
-    async def _dispatch_all(self):
+    async def _dispatch_all(self, middleware=True):
+        events = []
         while not self._event_queue.empty():
             event = await self._event_queue.get()
+            if middleware:
+                event = await self._apply_middlewares(event)
+                if event is None:
+                    continue
+            events.append(event)
+
+        for event in events:
             subscribers = self._subscriptions[type(event)]
             tasks = [
                 self._safe_dispatch(subscriber, [event]) for subscriber in subscribers
@@ -83,6 +79,30 @@ class EventStream(ELoop):
         finally:
             self._active_subscribers -= 1
 
+    # middleware
+    def add_middleware(self, middleware_coro_or_class):
+        self._middlewares.append(middleware_coro_or_class)
+
+    async def _apply_middlewares(self, event):
+        """Apply middlewares to the event."""
+        for middleware in self._middlewares:
+            event = await middleware(event)
+            if event is None:
+                return None
+        return event
+
+    # subscription
+    def subscribe(self, event_type, subscriber=None):
+        if subscriber is None:
+            if isinstance(event_type, Mapping):
+                return self.subscribe_from(event_type)
+            else:
+                raise TypeError(
+                    "subscriber must be specified if event_type is not a mapping"
+                )
+
+        self._subscriptions[event_type].append(subscriber)
+
     def subscribe_from(self, d: Dict[Event | Subscriber, list[Event | Subscriber]]):
         key_type = d.keys().__iter__().__next__()
         if issubclass(key_type, Event):
@@ -93,6 +113,14 @@ class EventStream(ELoop):
             for sub, evs in d.items():
                 for ev in evs:
                     self.subscribe(ev, sub)
+
+    def unsubscribe(self, event_type, subscriber):
+        self._subscriptions[event_type].remove(subscriber)
+
+    def unsubscribe_all(self, subscriber):
+        for _, subscribers in self._subscriptions.items():
+            if subscriber in subscribers:
+                subscribers.remove(subscriber)
 
     @classmethod
     def from_dict(cls, evs: dict[Subscriber | Event, list[Event | Subscriber]]):
