@@ -56,7 +56,7 @@ def main():
     stream.update_filter(lambda e: e.data % 2 == 0, event_type=MyEvent)
     stream.update_filter(lambda e: e.data % 2 == 1, subscriber_name="B")
     stream.update_filter(
-        lambda e: e.data % 2 == 0, subscriber_name="C", callback_fn=print
+        lambda e: e.data % 2 == 0, subscriber_name="C", callback_fns=[print]
     )
 
     try:

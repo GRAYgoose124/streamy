@@ -1,11 +1,12 @@
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import singledispatch
 import logging
 from collections import defaultdict
 from collections.abc import Mapping
+import operator
 import traceback
-from typing import Callable, Dict, Literal, NamedTuple
+from typing import Callable, Dict, Literal, NamedTuple, Optional
 
 from .event import ELoop, Event
 from .subscriber import Subscriber
@@ -17,8 +18,10 @@ log = logging.getLogger(__name__)
 @dataclass
 class Subscription:
     subscriber: Subscriber
-    filter_fn: Callable[[Event], bool] = None
-    callback_fn: Callable[[Event], None] = None
+    filter_fns: list[tuple[callable, Callable[[Event], bool]]] = field(
+        default_factory=list
+    )
+    callback_fns: Optional[list[Callable[[Event], None]]] = field(default_factory=list)
     reject_on_filter: bool = True
     reject_with_cb: bool = False
 
@@ -76,12 +79,23 @@ class EventStream(ELoop):
         for event in events:
             subscriptions = self._subscriptions[type(event)]
             for subscription in subscriptions:
-                if subscription.filter_fn is None or subscription.filter_fn(event):
-                    if subscription.callback_fn:
+                filter_result = True
+
+                if len(subscription.filter_fns):
+                    for op, ffn in subscription.filter_fns:
+                        filter_result = op(ffn(event), filter_result)
+
+                if len(subscription.filter_fns) or filter_result:
+                    if len(subscription.callback_fns):
                         log.debug("Running %s's callback fn...", subscription)
-                        subscription.callback_fn(event)
+                        for cb in subscription.callback_fns:
+                            cb(event)
                     if subscription.reject_on_filter:
-                        if subscription.reject_with_cb or not subscription.callback_fn:
+                        if (
+                            subscription.reject_with_cb
+                            or not len(subscription.callback_fns)
+                            and not subscription.reject_with_cb
+                        ):
                             log.debug("Rejecting %s for %s", event, subscription)
                             continue
 
@@ -126,36 +140,36 @@ class EventStream(ELoop):
         for et, subscription_list in self._subscriptions.items():
             for subscription in subscription_list:
                 if subscription.subscriber.name == subscriber_name:
-                    subscription.filter_fn = None
+                    subscription.filter_fns.clear()
                 if et == event_type:
-                    subscription.filter_fn = None
+                    subscription.filter_fns.clear()
 
     def update_filter(
-        self, filter_fn, callback_fn=None, subscriber_name=None, event_type=None
+        self,
+        filter_fn,
+        filter_op=operator.and_,
+        callback_fns=None,
+        subscriber_name=None,
+        event_type=None,
     ):
         if subscriber_name is None and event_type is None:
             raise ValueError("Either subscriber or event_type must be specified")
         if subscriber_name is not None and event_type is not None:
             raise ValueError("Only one of subscriber or event_type can be specified")
 
-        def new_filter(s):
-            old_filter = s.filter_fn
-            if old_filter is None:
-                return filter_fn
-            else:
-                return lambda e: filter_fn(e) and old_filter(e)
-
+        # TODO: Can probably fix this repetition
         if event_type is not None:
             for subscription in self._subscriptions[event_type]:
-                subscription.filter_fn = new_filter(subscription)
-                subscription.callback_fn = callback_fn
+                subscription.filter_fns.append((filter_op, filter_fn))
+                if callback_fns is not None:
+                    subscription.callback_fns.extend(callback_fns)
         else:
             for subscription_list in self._subscriptions.values():
                 for subscription in subscription_list:
                     if subscription.subscriber.name == subscriber_name:
-                        # TODO: should be list[tuple[Filter, Callback]]
-                        subscription.filter_fn = new_filter(subscription)
-                        subscription.callback_fn = callback_fn
+                        subscription.filter_fns.append((filter_op, filter_fn))
+                        if callback_fns is not None:
+                            subscription.callback_fns.extend(callback_fns)
 
     # subscription
     def subscribe(self, event_type, subscriber=None, filter_fn=None):
@@ -167,7 +181,10 @@ class EventStream(ELoop):
                     "subscriber must be specified if event_type is not a mapping"
                 )
 
-        subscription = Subscription(subscriber, filter_fn)
+        filter_fns = []
+        if filter_fn:
+            filter_fns.append(filter_fn)
+        subscription = Subscription(subscriber, filter_fns)
         self._subscriptions[event_type].append(subscription)
 
     def subscribe_from(self, d: Dict[Event | Subscriber, list[Event | Subscriber]]):
@@ -195,9 +212,10 @@ class EventStream(ELoop):
         for event_type in self._subscriptions.keys():
             self.unsubscribe(event_type, subscriber)
 
-    #
     @classmethod
     def from_dict(cls, evs: dict[Subscriber | Event, list[Event | Subscriber]]):
         stream = cls()
         stream.subscribe(evs)
         return stream
+
+    # def update_subscription()

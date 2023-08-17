@@ -38,3 +38,6 @@ class Subscriber(ABC):
                 self._generic_nested_sub_operation(event_stream, event, operation)
         elif issubclass(event_type, Event):
             getattr(event_stream, operation)(event_type, self)
+
+    def __repr__(self):
+        return self.name

@@ -49,8 +49,6 @@ class LoggerMiddleware(Middleware):
 
     def __post_init__(self):
         """Initialize the middleware."""
-        print(f"Initializing {self.name} middleware.")
-        # get the root logger
         if self.name:
             self.logger = logging.getLogger().getChild(self.name)
         else:
