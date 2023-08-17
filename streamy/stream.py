@@ -18,6 +18,9 @@ log = logging.getLogger(__name__)
 class Subscription:
     subscriber: Subscriber
     filter_fn: Callable[[Event], bool] = None
+    callback_fn: Callable[[Event], None] = None
+    reject_on_filter: bool = True
+    reject_with_cb: bool = False
 
 
 class EventStream(ELoop):
@@ -70,17 +73,20 @@ class EventStream(ELoop):
                     continue
             events.append(event)
 
+        tasks = []
         for event in events:
             subscriptions = self._subscriptions[type(event)]
-            tasks = []
-
             for subscription in subscriptions:
                 if not subscription.filter_fn or subscription.filter_fn(event):
-                    tasks.append(self._safe_dispatch(subscription.subscriber, [event]))
-                else:
-                    log.debug(f"Filter rejected event {event} for {subscription}")
+                    if subscription.callback_fn:
+                        subscription.callback_fn(event)
+                    if subscription.reject_on_filter:
+                        if subscription.reject_with_cb or not subscription.callback_fn:
+                            continue
 
-            await asyncio.gather(*tasks)
+                    tasks.append(self._safe_dispatch(subscription.subscriber, [event]))
+
+        await asyncio.gather(*tasks)
 
     async def _safe_dispatch(self, subscriber, events):
         try:
@@ -94,8 +100,9 @@ class EventStream(ELoop):
             self._active_subscribers -= 1
 
     # middleware
-    def add_middleware(self, middleware_coro_or_class):
-        self._middlewares.append(middleware_coro_or_class)
+    def add_middleware(self, middleware: Middleware):
+        middleware._event_stream = self
+        self._middlewares.append(middleware)
 
     async def _apply_middlewares(self, event):
         """Apply middlewares to the event."""
@@ -113,7 +120,9 @@ class EventStream(ELoop):
                 if et == event_type:
                     subscription.filter_fn = None
 
-    def update_filter(self, filter_fn, subscriber_name=None, event_type=None):
+    def update_filter(
+        self, filter_fn, callback_fn=None, subscriber_name=None, event_type=None
+    ):
         if subscriber_name is None and event_type is None:
             raise ValueError("Either subscriber or event_type must be specified")
         if subscriber_name is not None and event_type is not None:
@@ -129,11 +138,14 @@ class EventStream(ELoop):
         if event_type is not None:
             for subscription in self._subscriptions[event_type]:
                 subscription.filter_fn = new_filter(subscription)
+                subscription.callback_fn = callback_fn
         else:
             for subscription_list in self._subscriptions.values():
                 for subscription in subscription_list:
                     if subscription.subscriber.name == subscriber_name:
+                        # TODO: should be list[tuple[Filter, Callback]]
                         subscription.filter_fn = new_filter(subscription)
+                        subscription.callback_fn = callback_fn
 
     # subscription
     def subscribe(self, event_type, subscriber=None, filter_fn=None):

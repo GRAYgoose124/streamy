@@ -38,7 +38,7 @@ class MyPublisher(Publisher):
 
 def main():
     logging.basicConfig(
-        level=logging.DEBUG,  # also want module name
+        level=logging.DEBUG,
         format="%(module)s:%(lineno)d\t%(levelname)s] %(message)s",
     )
 
@@ -55,6 +55,9 @@ def main():
     )
     stream.update_filter(lambda e: e.data % 2 == 0, event_type=MyEvent)
     stream.update_filter(lambda e: e.data % 2 == 1, subscriber_name="B")
+    stream.update_filter(
+        lambda e: e.data % 2 == 0, subscriber_name="C", callback_fn=print
+    )
 
     try:
         asyncio.get_event_loop().run_until_complete(

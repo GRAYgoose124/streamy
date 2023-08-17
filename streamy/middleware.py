@@ -2,20 +2,29 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
 
+from .event import Event
+
 
 class Middleware(ABC):
     """Base class for middleware, which is any arbitrary code that can be run before
     or after an event publish and subscribe.
 
     It can be used to add additional functionality to the event system,
-    such as logging, authentication, or authorization.
+    such as logging or authorization.
     """
 
-    def __init__(self, name=None):
+    def __init__(self):
         """Initialize the middleware."""
-        self.name = name
-
+        self._event_stream = None
         self.__post_init__()
+
+    def __post_init__(self):
+        pass
+
+    @property
+    def event_stream(self):
+        """Get the event stream."""
+        return self._event_stream
 
     @abstractmethod
     async def __call__(self, event):
@@ -25,6 +34,10 @@ class Middleware(ABC):
 
 class LoggerMiddleware(Middleware):
     """Middleware that logs all events."""
+
+    def __init__(self, name=None):
+        self.name = name
+        super().__init__()
 
     def __post_init__(self):
         """Initialize the middleware."""
