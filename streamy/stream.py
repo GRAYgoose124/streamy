@@ -5,7 +5,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Mapping
 import traceback
-from typing import Callable, Dict, NamedTuple
+from typing import Callable, Dict, Literal, NamedTuple
 
 from .event import ELoop, Event
 from .subscriber import Subscriber
@@ -47,7 +47,7 @@ class EventStream(ELoop):
 
     async def publish(self, event, middleware=True):
         if middleware:
-            event = await self._apply_middlewares(event)
+            event = await self._apply_middlewares(event, when="before")
             if event is None:
                 return
 
@@ -66,22 +66,23 @@ class EventStream(ELoop):
     async def _dispatch_all(self, middleware=True):
         events = []
         while not self._event_queue.empty():
-            event = await self._event_queue.get()
-            if middleware:
-                event = await self._apply_middlewares(event)
-                if event is None:
-                    continue
-            events.append(event)
+            # if middleware:
+            #     event = await self._apply_middlewares(event, when="after")
+            #     if event is None:
+            #         continue
+            events.append(self._event_queue.get_nowait())
 
         tasks = []
         for event in events:
             subscriptions = self._subscriptions[type(event)]
             for subscription in subscriptions:
-                if not subscription.filter_fn or subscription.filter_fn(event):
+                if subscription.filter_fn is None or subscription.filter_fn(event):
                     if subscription.callback_fn:
+                        log.debug("Running %s's callback fn...", subscription)
                         subscription.callback_fn(event)
                     if subscription.reject_on_filter:
                         if subscription.reject_with_cb or not subscription.callback_fn:
+                            log.debug("Rejecting %s for %s", event, subscription)
                             continue
 
                     tasks.append(self._safe_dispatch(subscription.subscriber, [event]))
@@ -92,6 +93,9 @@ class EventStream(ELoop):
         try:
             self._active_subscribers += 1
             await subscriber(events)
+            # maybe kinda useless?
+            for event in events:
+                self._apply_middlewares(event, when="after")
         except Exception as e:
             log.error(
                 f"Error in subscriber {subscriber.name}:\n{traceback.format_exc()}\n"
@@ -101,13 +105,19 @@ class EventStream(ELoop):
 
     # middleware
     def add_middleware(self, middleware: Middleware):
-        middleware._event_stream = self
+        middleware.event_stream = self
         self._middlewares.append(middleware)
 
-    async def _apply_middlewares(self, event):
+    async def _apply_middlewares(
+        self, event, when: Literal["before", "after"] = "before"
+    ):
         """Apply middlewares to the event."""
         for middleware in self._middlewares:
-            event = await middleware(event)
+            if when == "before":
+                event = await middleware.pre(event)
+            elif when == "after":
+                event = await middleware.post(event)
+
             if event is None:
                 return None
         return event
@@ -185,6 +195,7 @@ class EventStream(ELoop):
         for event_type in self._subscriptions.keys():
             self.unsubscribe(event_type, subscriber)
 
+    #
     @classmethod
     def from_dict(cls, evs: dict[Subscriber | Event, list[Event | Subscriber]]):
         stream = cls()

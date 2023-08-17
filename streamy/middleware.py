@@ -26,10 +26,18 @@ class Middleware(ABC):
         """Get the event stream."""
         return self._event_stream
 
-    @abstractmethod
-    async def __call__(self, event):
+    @event_stream.setter
+    def event_stream(self, event_stream):
+        """Set the event stream."""
+        self._event_stream = event_stream
+
+    async def pre(self, event):
         """Middleware function that can be overridden."""
-        pass
+        return event
+
+    async def post(self, event):
+        """Middleware function that can be overridden."""
+        return event
 
 
 class LoggerMiddleware(Middleware):
@@ -48,7 +56,20 @@ class LoggerMiddleware(Middleware):
         else:
             self.logger = logging.getLogger()
 
-    async def __call__(self, event):
+    async def pre(self, event):
         """Log the event."""
         self.logger.info(f"Event: {event}")
+        return event
+
+
+class ContextMiddleware(Middleware):
+    """Middleware that adds a context to the event."""
+
+    def __init__(self, context=None):
+        self.context = context
+        super().__init__()
+
+    async def pre(self, event):
+        """Add the context to the event."""
+        event.context = self.context
         return event
