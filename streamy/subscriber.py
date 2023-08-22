@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Literal
 
+
 from .event import Event
 
 
@@ -24,11 +25,13 @@ class Subscriber(ABC):
             await self.handler(event)
         self._idle = True
 
-    def subscribe(self, event_stream, event_type):
-        self._generic_nested_sub_operation(event_stream, event_type, "subscribe")
+    def subscribe(self, event_stream: "EventStream", events: list[Event]):
+        for event_type in events:
+            self._generic_nested_sub_operation(event_stream, event_type, "subscribe")
 
-    def unsubscribe(self, event_stream, event_type):
-        self._generic_nested_sub_operation(event_stream, event_type, "unsubscribe")
+    def unsubscribe(self, event_stream: "EventStream", events: list[Event]):
+        for event_type in events:
+            self._generic_nested_sub_operation(event_stream, event_type, "unsubscribe")
 
     def _generic_nested_sub_operation(
         self, event_stream, event_type, operation: Literal["subscribe", "unsubscribe"]

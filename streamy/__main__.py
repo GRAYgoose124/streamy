@@ -6,7 +6,7 @@ import random
 from streamy.middleware import LoggerMiddleware
 
 from .stream import EventStream
-from .event import ELoop, Event
+from .event import Event
 from .publisher import Publisher
 from .subscriber import Subscriber
 from .utils import eloop_gather, instanced_evdict

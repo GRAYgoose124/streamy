@@ -32,10 +32,10 @@ class _TestSubscriber(Subscriber):
 async def test_publisher_subscriber_interaction():
     stream = EventStream()
     subscriber = _TestSubscriber(name="TestSubscriber")
-    stream.subscribe(_TestEvent, subscriber=subscriber)
-    publisher = _TestPublisher(stream)
+    subscriber.subscribe(stream, events=[_TestEvent])
+    # stream.subscribe(_TestEvent, subscriber=subscriber) # this can also be used with EventMappings
 
-    await asyncio.gather(publisher.loop(), stream._dispatch_all())
+    await asyncio.gather(_TestPublisher(stream).loop(), stream._dispatch_all(False))
 
     assert subscriber.received_data == "test_data"
 
@@ -71,3 +71,7 @@ async def test_event_filters():
     await stream._dispatch_all()
 
     assert subscriber.received_data is None  # Because the filter did not match
+
+
+if __name__ == "__main__":
+    pytest.main()
