@@ -17,10 +17,11 @@ class ELoop(ABC):
 
 class Event:
     def __init__(self, data):
+        self.name = self.__class__.__name__
         self.data = data
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({self.data})"
+        return f"{self.name}({self.data})"
 
     def __eq__(self, other):
         return self.__class__ == other.__class__ and self.data == other.data

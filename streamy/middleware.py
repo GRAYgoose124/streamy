@@ -71,3 +71,26 @@ class ContextMiddleware(Middleware):
         """Add the context to the event."""
         event.context = self.context
         return event
+
+
+from pydantic import BaseModel, ValidationError, typing
+
+
+class EventModel(BaseModel):
+    name: str
+    data: typing.Any
+
+
+class PydanticMiddleware(Middleware):
+    def __init__(self):
+        super().__init__()
+
+    async def post(self, event):
+        """Validate the event using the Pydantic model."""
+        try:
+            validated_event = EventModel(**event.__dict__)
+
+            return validated_event
+        except ValidationError as e:
+            # You can choose to log this, or handle it in a way that's suitable for your use-case
+            pass

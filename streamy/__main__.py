@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import logging
 import random
 
-from streamy.middleware import LoggerMiddleware
+from streamy.middleware import LoggerMiddleware, PydanticMiddleware
 
 from .stream import EventStream
 from .event import Event
@@ -44,6 +44,7 @@ def main():
 
     stream = EventStream()
     stream.add_middleware(LoggerMiddleware(name="Logger"))
+    stream.add_middleware(PydanticMiddleware())
     stream.subscribe(
         instanced_evdict(
             {
