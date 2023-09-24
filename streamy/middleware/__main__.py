@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
 
-from .event import Event
+from ..event import Event
 
 
 class Middleware(ABC):

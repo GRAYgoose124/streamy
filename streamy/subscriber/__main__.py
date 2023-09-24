@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Literal
+from typing import Callable, Literal, Optional
+from dataclasses import dataclass, field
 
 
-from .event import Event
+from ..event import Event
 
 
 class Subscriber(ABC):
@@ -44,3 +45,14 @@ class Subscriber(ABC):
 
     def __repr__(self):
         return self.name
+
+
+@dataclass
+class Subscription:
+    subscriber: Subscriber
+    filter_fns: list[tuple[Callable, Callable[[Event], bool]]] = field(
+        default_factory=list
+    )
+    callback_fns: Optional[list[Callable[[Event], None]]] = field(default_factory=list)
+    reject_on_filter: bool = True
+    reject_with_cb: bool = False
