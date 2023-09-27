@@ -2,6 +2,7 @@ import asyncio
 
 
 def instanced_evdict(strevdict, subscriber_cls):
+    """Create instances of `subscriber_cls` from `strevdict` to be used in `EventStream.subscribe`"""
     # first gather subs to create
     subs = set()
     for subs_list in strevdict.values():

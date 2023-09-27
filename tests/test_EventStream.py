@@ -1,13 +1,22 @@
 import asyncio
 import pytest
+import logging
 
-from streamy.middleware import LoggerMiddleware, Middleware
-from streamy.stream import EventStream
-from streamy.event import Event
-from streamy.publisher import Publisher
-from streamy.subscriber import Subscriber
+from streamy import *
+from streamy.middleware.basic import LoggerMiddleware
+
+
+log = logging.getLogger(__name__)
+
 
 pytest_plugins = ("asyncio",)
+
+
+# pytest log setup
+@pytest.fixture(autouse=True)
+def setup_logging(caplog):
+    logging.basicConfig(level=logging.DEBUG)
+    caplog.set_level(logging.DEBUG)
 
 
 class _TestEvent(Event):
@@ -17,6 +26,7 @@ class _TestEvent(Event):
 class _TestPublisher(Publisher):
     async def loop(self):
         await self.event_stream.publish(_TestEvent("test_data"))
+        log.debug(f"{self} published {_TestEvent}")
 
 
 class _TestSubscriber(Subscriber):
@@ -25,6 +35,7 @@ class _TestSubscriber(Subscriber):
         self.received_data = None
 
     async def handler(self, event):
+        log.debug(f"{self} received {event}")
         self.received_data = event.data
 
 
@@ -54,9 +65,9 @@ async def test_middleware_processing():
     publisher = _TestPublisher(stream)
     await publisher.loop()  # Run the loop once to publish an event
     await stream._dispatch_all()
-    assert (
-        subscriber.received_data is None
-    )  # Because the middleware stopped propagation
+
+    # Because the middleware stopped propagation
+    assert subscriber.received_data is None
 
 
 @pytest.mark.asyncio
@@ -70,7 +81,8 @@ async def test_event_filters():
     await publisher.loop()  # Run the loop once to publish an event with "test_data"
     await stream._dispatch_all()
 
-    assert subscriber.received_data is None  # Because the filter did not match
+    # Because the filter did not match
+    assert subscriber.received_data is None
 
 
 if __name__ == "__main__":
